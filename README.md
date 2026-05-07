@@ -28,13 +28,12 @@ The system handles installer dispatching via proximity-based search, structured 
                             │ HTTPS / REST
 ┌───────────────────────────▼─────────────────────────────────┐
 │                  Go REST API (Gin + GORM)                     │
-│                  PostgreSQL 14+ · Redis                       │
+│                  PostgreSQL · Redis                           │
 └──────┬──────────────────────────────────────┬───────────────┘
        │ HTTPS REST                            │ HTTPS REST
        │                                       │
 ┌──────▼──────────────────┐       ┌────────────▼──────────────┐
-│   React Native App      │       │   AWS S3 / Cloudflare R2  │
-│   Expo SDK 54           │       │   (or local filesystem)   │
+│   React Native App      │       │   Cloud / Local Storage   │
 │   Installer mobile app  │       │                           │
 └─────────────────────────┘       └───────────────────────────┘
 ```
@@ -48,31 +47,30 @@ Field installers use the mobile app to accept jobs, submit site surveys, upload 
 | Layer | Technology |
 |-------|-----------|
 | Backend | Go / Gin / GORM |
-| Database | PostgreSQL 14+ |
+| Database | PostgreSQL |
 | Cache | Redis |
 | Auth | JWT + refresh token rotation · RBAC |
-| Frontend | React 18 + TypeScript / Vite 5 |
+| Frontend | React + TypeScript / Vite |
 | Frontend State | Zustand (persisted) |
 | Frontend UI | shadcn/ui + Tailwind CSS |
-| Mobile | React Native + Expo SDK 54 |
-| Mobile Navigation | React Navigation v6 |
-| File Storage | AWS S3 / Cloudflare R2 (pluggable) |
-| Geocoding | Nominatim · LocationIQ · Geoapify (pluggable) |
-| Push Notifications | Firebase Cloud Messaging (FCM) |
+| Mobile | React Native + Expo |
+| File Storage | S3-compatible object storage (pluggable) |
+| Geocoding | Multiple providers supported (pluggable) |
+| Push Notifications | Firebase Cloud Messaging |
 
 ---
 
 ## Key Features
 
 **Installation lifecycle management**
-- Eight-stage state machine from `pending_assignment` through `approved`
+- Multi-stage state machine covering the full workflow from initial assignment through admin approval
 - Every transition recorded append-only in an audit log with actor, timestamp, and prior state
 - Admin and installer roles enforce separate permitted transitions at the API level
 
 **Proximity-based installer dispatch**
 - Admin triggers a radius search against job coordinates
 - Backend queries installers within a configurable radius, returning results ranked by distance
-- Selected installer receives an FCM push notification on their mobile device and can accept or reject from the app
+- Selected installer receives a push notification on their mobile device and responds from the app
 
 **Delivery order workflow**
 - Admin populates the delivery order; balance load auto-calculates per phase from rating and measured full load
@@ -81,40 +79,36 @@ Field installers use the mobile app to accept jobs, submit site surveys, upload 
 
 **Document management**
 - Documents categorised by workflow stage (survey, installation, handover)
-- Files stored on S3/R2 in production; backend returns pre-signed URLs for direct client access
-- Local filesystem fallback for development with no config changes required
+- Cloud storage in production with a local filesystem fallback for development
+- Uniform file access contract across both environments
 
 **In-app notifications**
-- FCM push notifications delivered to the installer's device on job assignment
-- Web dashboard shows in-app notification feed with per-notification read state
+- Push notifications delivered to the installer's mobile device on job assignment
+- Web dashboard shows an in-app notification feed with per-notification read state
 
 ---
 
 ## Engineering Highlights
 
-**Pluggable geocoding provider**
+**Pluggable geocoding and storage**
 
-Geocoding is abstracted behind a provider interface with concrete implementations for Nominatim, LocationIQ, and Geoapify. Switching providers is a single environment variable change with no application code touched. This also allows Nominatim (free, no key) in development and a commercial provider in production without separate build configurations.
+Both the geocoding and file storage layers are abstracted behind provider interfaces. Concrete implementations can be swapped via configuration with no application code changes — useful for keeping development lightweight while running a different provider in production.
 
-**Pluggable file storage**
+**Token-based auth with per-session revocation**
 
-The storage layer uses the same abstraction pattern — an interface with S3/R2 and local filesystem implementations. Development runs entirely without cloud credentials. The same pre-signed URL contract is maintained across both backends, so the frontend code is identical in both environments.
-
-**JWT refresh token rotation with individual revocation**
-
-Access tokens are short-lived JWTs. Refresh tokens are stored in the database and can be revoked individually — logging out one device does not invalidate sessions on other devices. The mobile app and web dashboard each hold independent refresh tokens, so an admin revoking a field installer's session does not affect the coordinator's session.
+Access tokens are short-lived. Refresh tokens are managed independently per client, so revoking one session (e.g. a field installer's device) does not affect other active sessions. Mobile and web clients operate on separate tokens.
 
 **State machine integrity via audit log**
 
-Status transitions are persisted as append-only audit log entries, not overwritten fields. Every transition records the acting user, timestamp, previous state, and new state. This gives a complete immutable history for dispute resolution and reporting without any additional event-sourcing infrastructure.
+Status transitions are persisted as append-only audit log entries rather than overwritten fields. Every transition records the actor, timestamp, and previous state — giving a complete immutable history for reporting and dispute resolution without additional event-sourcing infrastructure.
 
-**Redis-backed rate limiting on sensitive routes**
+**Rate limiting decoupled from business logic**
 
-Auth and geocoding endpoints are rate-limited per IP using a Redis sliding window counter. Limits are applied at the middleware layer before any handler logic runs, keeping the rate limit logic fully decoupled from business logic and trivially testable.
+Sensitive endpoints are rate-limited per IP at the middleware layer, before any handler logic runs. This keeps rate limiting independently testable and ensures consistent enforcement regardless of how routes are called.
 
 **Canvas signature capture on mobile**
 
-The delivery order customer signature is captured in a React Native canvas component, encoded, and uploaded alongside the DO record. The backend links the signature blob to the installation ID and document type, treating it identically to any other uploaded document — no bespoke signature storage path required.
+The delivery order customer signature is captured in a React Native canvas component, encoded, and uploaded alongside the DO record. The backend treats it identically to any other uploaded document — no bespoke signature storage path required.
 
 ---
 
