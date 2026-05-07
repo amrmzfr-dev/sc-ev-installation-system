@@ -32,7 +32,7 @@ The system handles installer dispatching via proximity-based search, structured 
                             │ HTTPS REST
                             │
                 ┌───────────▼───────────┐
-                │  Cloud / Local Storage │
+                │    Cloudflare R2       │
                 └───────────────────────┘
 ```
 
@@ -51,7 +51,7 @@ Admin coordinators use the web dashboard to create jobs, assign installers, revi
 | Frontend | React + TypeScript / Vite |
 | Frontend State | Zustand (persisted) |
 | Frontend UI | shadcn/ui + Tailwind CSS |
-| File Storage | S3-compatible object storage (pluggable) |
+| File Storage | Cloudflare R2 |
 | Geocoding | Multiple providers supported (pluggable) |
 
 ---
